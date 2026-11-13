@@ -1,4 +1,5 @@
 """Chuyển dữ liệu CSV gốc thành CSV đã xử lý."""
+from datetime import datetime
 from pathlib import Path
 import re
 
@@ -8,6 +9,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 INPUT_PATH = ROOT / "dataset" / "data.csv"
 OUTPUT_PATH = ROOT / "dataset" / "data_cleaned.csv"
+TOPCV_INPUT_PATH = ROOT / "dataset" /  f"date={datetime.now().strftime('%Y-%m-%d')}" / "topcv_jobs.json"
+TOPCV_OUTPUT_PATH = ROOT / "dataset" /  f"date={datetime.now().strftime('%Y-%m-%d')}" / "topcv_cleaned.csv"
+
+
+def parse_salary_number(number_text, unit):
+    if unit == "VND":
+        number_text = number_text.replace(",", ".")
+    elif unit == "USD":
+        number_text = number_text.replace(",", "")
+
+    return float(number_text)
 
 def salary_to_numeric(salary):
     if pd.isna(salary):
@@ -21,36 +33,43 @@ def salary_to_numeric(salary):
     else:
         unit = np.nan
 
+    if unit == "VND":
+        pattern = r"\d+(?:[.,]\d+)?"
+    elif unit == "USD":
+        pattern = r"\d[\d,]*"
+    else:
+        pattern = r"\d+"
+
     if value in ('thỏa thuận', 'thoả thuận'):
         return np.nan, np.nan, np.nan
-    
-    elif value.startswith('trên'):
-        number = re.search(r"\d[\d,]*", value)
+
+    elif value.startswith('trên') or value.startswith('từ'):
+        number = re.search(pattern, value)
         if number:
-            so = float(number.group().replace(',', ''))
+            so = parse_salary_number(number.group(), unit)
             if "triệu" in value:
                 so = so * 1000000
             return so, np.nan, unit
         
     elif value.startswith('tới'):
-        number = re.search(r"\d[\d,]*", value)
+        number = re.search(pattern, value)
         if number:
-            so = float(number.group().replace(',', ''))
+            so = parse_salary_number(number.group(), unit)
             if "triệu" in value:
                 so = so * 1000000
             return np.nan, so, unit
         
     else:
-        numbers = re.findall(r"\d[\d,]*", value)
+        numbers = re.findall(pattern, value)
         if len(numbers) == 2:
-            so1 = float(numbers[0].replace(',', ''))
-            so2 = float(numbers[1].replace(',', ''))
+            so1 = parse_salary_number(numbers[0], unit)
+            so2 = parse_salary_number(numbers[1], unit)
             if "triệu" in value:
                 so1 = so1 * 1000000
                 so2 = so2 * 1000000
             return so1, so2, unit
         elif len(numbers) == 1:
-            so = float(numbers[0].replace(',', ''))
+            so = parse_salary_number(numbers[0], unit)
             if "triệu" in value:
                 so = so * 1000000
             return so, so, unit
@@ -123,11 +142,32 @@ tinh_thanh = [
     "Toàn Quốc",
 ]
 
+foreign_locations = [
+    "Nhật Bản",
+    "Hàn Quốc",
+    "Trung Quốc",
+    "Singapore",
+    "Thái Lan",
+    "Đài Loan",
+    "Mỹ",
+    "Hoa Kỳ",
+    "Úc",
+    "Canada",
+    "Anh",
+    "Đức",
+    "Pháp",
+    "Nước Ngoài",
+]
 def address_separate(location):
     if pd.isna(location):
         return {}
-
-    parts = [part.strip() for part in location.split(":")]
+    location = re.sub(
+        r"\s*\(mới\)",
+        "",
+        location,
+        flags=re.IGNORECASE,
+    )
+    parts = [part.strip() for part in re.split(r"[:&]", location)]
 
     results = {}
     number_of_city = 0
@@ -145,7 +185,10 @@ def address_separate(location):
                 district = district.strip()
                 number_of_district += 1
                 results[f"district{number_of_city}_{number_of_district}"] = district
-
+        elif part in foreign_locations:
+            number_of_city += 1
+            number_of_district = 0
+            results[f"city{number_of_city}"] = part
     return results
 
 software_development = [
@@ -154,18 +197,22 @@ software_development = [
     "frontend", "front-end", "front end",
     "backend", "back-end", "back end",
     "fullstack", "full-stack", "full stack",
-    "angularjs", "reactjs", "nodejs", "laravel"
+    "angularjs", "reactjs", "nodejs", "laravel",
+    "javascript", "java", "python",
+    "php", "c#", "c++", "golang",
 ]
 
-software_testing = [
+testing = [
     "tester", "testing", "software test",
     "quality assurance", "quality control",
     "kiểm thử", "kiểm thử phần mềm",
 ]
 
-business_analysis = [
+business_develoment = [
     "business analyst", "business analysis",
-    "phân tích nghiệp vụ", "business intelligence", "bi"
+    "phân tích nghiệp vụ", "business intelligence",
+    "business development",  "kỹ sư cầu nối",
+    "bridge engineer", "bridge software engineer", "brse engineer",
 ]
 
 data_ai = [
@@ -173,7 +220,7 @@ data_ai = [
     "data science", "data developer", "big data",
     "ai engineer", "machine learning",
     "phân tích dữ liệu", "quản trị cơ sở dữ liệu",
-    "data admin",
+    "data admin",  "data governance",
 ]
 
 security = [
@@ -201,67 +248,172 @@ design = [
 project_product_management = [
     "project manager", "project leader", "project coordinator",
     "product manager", "product owner", "scrum master",
-    "quản lý dự án", "điều phối dự án",
+    "quản lý dự án", "điều phối dự án", "comtor", "it communicator"
 ]
 
 hardware = ["iot", "embedded", "nhúng", "cơ điện tử",
             "robotics", "robot", "cơ khí", "cơ khí chế tạo", "cơ khí động lực",
             "cơ khí ô tô", "cơ khí chính xác", "vi mạch",]
 
+education = ["giáo viên", "giảng viên",]
+
+it_support_infrastructure += [
+    "kỹ sư hệ thống",
+    "hệ thống mạng",
+    "kỹ thuật mạng",
+    "service desk",
+    "linux engineer",
+    "site reliability engineer",
+    "server engineer",
+    "triển khai hạ tầng",
+    "vận hành cloud",
+]
+
+data_ai += [
+    "database administrator",
+    "database engineer",
+    "computer vision",
+    "ai intern",
+    "thực tập sinh ai",
+    "data manager",
+]
+
+testing += [
+    "automation test",
+    "test lead",
+    "test leader",
+    "test engineer",
+]
+
+software_development += [
+    "mobile dev",
+    "react native",
+    "fresher android",
+    "ruby on rails",
+]
+
+design += [
+    "multimedia designer",
+    "product designer",
+    "thiết kế website",
+]
+
+marketing_content = [
+    "marketing",
+    "seo",
+    "content writer",
+    "content marketing",
+    "video editor",
+]
+
 def classify_job_title(job_title):
     if pd.isna(job_title):
         return "Other"
 
     job_title_lower = job_title.lower()
+    job_title_lower = job_title_lower.replace("_", " ")
 
-    for keyword in security:
-            if keyword in job_title_lower:
-                return "Security"
+    if re.search(r"\b(bi)\b", job_title_lower):
+        return "Business Development/BI/BA"
+    
+    if re.search(r"\b(qa|qc|pqa)\b", job_title_lower):
+        return "Testing"
 
-    for keyword in data_ai:
-            if keyword in job_title_lower:
-                return "Data & AI"
+    if re.search(r"\bbrse\b", job_title_lower):
+        return "Business Development/BI/BA"
 
-    for keyword in software_testing:
-            if keyword in job_title_lower:
-                return "Software Testing"
-
-    for keyword in business_analysis:
-            if keyword in job_title_lower:
-                return "Business Analysis"
-
-    for keyword in project_product_management:
-            if keyword in job_title_lower:
-                return "Project & Product Management"
-            
-    for keyword in design:
-            if keyword in job_title_lower:
-                return "Design"
-            
-    for keyword in it_support_infrastructure:
-            if keyword in job_title_lower:
-                return "IT Support & Infrastructure"
-            
-    for keyword in software_development:
+    
+    for keyword in education:
         if keyword in job_title_lower:
-            return "Software Development"
+            return "Education"
+        
+    for keyword in security:
+        if keyword in job_title_lower:
+            return "Security"
+
     for keyword in hardware:
         if keyword in job_title_lower:
             return "Hardware"
+            
+    for keyword in data_ai:
+        if keyword in job_title_lower:
+            return "Data & AI"
+
+    for keyword in testing:
+        if keyword in job_title_lower:
+            return "Testing"
+
+    for keyword in business_develoment:
+        if keyword in job_title_lower:
+            return "Business Development/BI/BA"
+
+    for keyword in project_product_management:
+        if keyword in job_title_lower:
+            return "Project & Product Management"
+            
+    for keyword in design:
+         if keyword in job_title_lower:
+            return "Design"
+         
+    for keyword in marketing_content:
+        if keyword in job_title_lower:
+            return "Marketing & Content"
+            
+    for keyword in it_support_infrastructure:
+        if keyword in job_title_lower:
+            return "IT Support & Infrastructure"
+                            
+    for keyword in software_development:
+        if keyword in job_title_lower:
+            return "Software Development"
+    
     return "Other"
 
-def main():
-    df = pd.read_csv(INPUT_PATH)
+
+def transform_data(df):
     df[["min_salary", "max_salary", "salary_unit"]] = (
         df["salary"].apply(salary_to_numeric).apply(pd.Series)
     )
+
     locations = df["address"].apply(address_separate).apply(pd.Series)
     df = pd.concat([df, locations], axis=1)
+
     df["job_title_category"] = df["job_title"].apply(classify_job_title)
     df["salary_avg"] = (df["min_salary"] + df["max_salary"]) / 2
-    df.to_csv(OUTPUT_PATH, index=False)
-    print(f"Đã lưu {len(df)} dòng vào {OUTPUT_PATH}")
 
+    return df
+
+
+def main():
+    # Đọc CSV
+    try:
+        df_csv = pd.read_csv(INPUT_PATH)
+    except FileNotFoundError as error:
+        print(f"Không tìm thấy file CSV: {error}")
+        raise
+    except pd.errors.EmptyDataError:
+        print(f"File CSV rỗng: {INPUT_PATH}")
+        raise
+
+    # Đọc JSON
+    try:
+        df_topcv = pd.read_json(TOPCV_INPUT_PATH)
+    except FileNotFoundError as error:
+        print(f"Không tìm thấy file JSON: {error}")
+        raise
+    except ValueError as error:
+        print(f"Không đọc được JSON: {error}")
+        raise
+    if df_topcv.empty:
+        print("JSON không có bản ghi nào.")
+    df_csv = transform_data(df_csv)
+    df_csv.to_csv(OUTPUT_PATH, index=False)
+
+    df_topcv = transform_data(df_topcv)
+    df_topcv.to_csv(TOPCV_OUTPUT_PATH, index=False)
+
+    print(f"Đã lưu {len(df_csv)} dòng vào {OUTPUT_PATH}")
+    print(f"Đã lưu {len(df_topcv)} dòng vào {TOPCV_OUTPUT_PATH}")
 
 if __name__ == "__main__":
     main()
